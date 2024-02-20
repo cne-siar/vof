@@ -101,7 +101,7 @@ this.KDF=(function(window, document, $, undefined) {
 			kdf.forms=response.forms;
 			$.each(kdf.forms, function() {
 				if (this.name == kdf.name) {
-					kdf.rest.form=this.links[0].href;
+					kdf.rest.form=this.links[0].href.replace(/^http:\/\//i, 'https://');
 					return false;
 				}
 			});
@@ -121,7 +121,7 @@ this.KDF=(function(window, document, $, undefined) {
 			kdf.forms=response.forms;
 			$.each(kdf.forms, function() {
 				if (this.name == kdf.name) {
-					kdf.rest.form=this.links[0].href;
+					kdf.rest.form=this.links[0].href.replace(/^http:\/\//i, 'https://');;
 					return false;
 				}
 			});
@@ -1654,8 +1654,11 @@ this.KDF=(function(window, document, $, undefined) {
 		$.each(links, function() {
 			var basehref = this.href;
 			basehref.indexOf('?') > 0 ? basehref = basehref.substr(0, basehref.indexOf('?')) : basehref = this.href;
+			// Hack to fix rest api calls using http not https
+			basehref = basehref.replace(/^http:\/\//i, 'https://');
+			
 			if (this.rel == 'save') {
-				kdf.rest.save=this.href;
+				kdf.rest.save=this.href.replace(/^http:\/\//i, 'https://');;
 			}
 			if (this.rel == 'setinteractionid') {
 				kdf.rest.setinteractionid=basehref;
@@ -1682,10 +1685,10 @@ this.KDF=(function(window, document, $, undefined) {
 				kdf.rest.deleteFile=basehref;
 			}
 			if (this.rel == 'content') {
-				kdf.rest.content=this.href;
+				kdf.rest.content=this.href.replace(/^http:\/\//i, 'https://');;
 			}
 			if (this.rel == 'download') {
-				kdf.rest.download=this.href;
+				kdf.rest.download=this.href.replace(/^http:\/\//i, 'https://');;
 			}
 		});
 	}
