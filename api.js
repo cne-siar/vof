@@ -266,6 +266,8 @@ this.KDF=(function(window, document, $, undefined) {
 			}
 			if (type == 'customer') {
 				setReportingIndividual(id);
+			} else if (type == 'organisation') {
+				setReportingOrganisation(id);
 			}
 
 		}).fail(ajaxError);
@@ -289,6 +291,15 @@ this.KDF=(function(window, document, $, undefined) {
 
 	function setReportingIndividual(customerid) {
 		var payload = '{ "type" : "lagan:setReportingIndividual", "data" : { "reporterId" : "' + customerid + '" } }';
+		if (window.opener) {
+			window.opener.postMessage(payload, '*');
+		} else {
+			parent.postMessage(payload, '*');
+		}
+	}
+	
+	function setReportingOrganisation(customerid) {
+		var payload = '{ "type" : "lagan:setReportingOrganisation", "data" : { "reporterId" : "' + customerid + '" } }';
 		if (window.opener) {
 			window.opener.postMessage(payload, '*');
 		} else {
@@ -328,6 +339,11 @@ this.KDF=(function(window, document, $, undefined) {
 			kdf.saveresponse=response;
 			if (kdf.form.currentpage == kdf.pages) {
 				if (kdf.saveresponse.valid) {
+					
+					kdf.form.ref=response.ref;
+					kdf.form.caseid=response.caseid;
+					kdf.form.interactionid=response.interactionid;
+					
 					kdf.form.complete='Y';
 					$( '#dform_'+kdf.name ).trigger('_KDF_complete', [ kdf ] );					
 					markComplete();
@@ -361,7 +377,7 @@ this.KDF=(function(window, document, $, undefined) {
 			$('#dform_files').html('');
 			if (kdf.saveresponse.files && kdf.saveresponse.files.length > 0) {
 				$.each(kdf.saveresponse.files, function() {
-					var link = '<a target="_blank" href="'+kdf.restapi+'getfile?ref='+kdf.form.ref+'&filename='+this.filename+'">'+escapeHtml(this.filename)+'</a>';
+					var link = '<a target="_blank" href="'+kdf.restapi+'getfile?ref='+kdf.form.ref+'&filename='+encodeURIComponent(this.filename)+'">'+escapeHtml(this.filename)+'</a>';
 					//TODO: this.links[0].href should be used but Spring Hateous double encoding
 					$('#dform_files').append(link);
 				});
@@ -607,7 +623,9 @@ this.KDF=(function(window, document, $, undefined) {
 		$(selector).find('input[type="file"]').each(function() {
 
 			var fileinputid=$(this).attr('id');
-			var fieldname=$(this).attr('id').replace('dform_widget_','');
+			//OFORMS-113 - don't remove the dform_widget_ identifier from the field name to permit reloading of child page file widgets
+			//var fieldname=$(this).attr('id').replace('dform_widget_','');
+			var fieldname=$(this).attr('id');
 			var maxsize=$(this).data('maxsize');
 			$('#'+fileinputid+'_progressbar').html('<div style="width: '+0+'%;"></div>');
 
@@ -631,9 +649,17 @@ this.KDF=(function(window, document, $, undefined) {
 						if (maxsize != 0 && this.size > maxsize) {
 							uploadErrors.push(kdf.messages.incorrectFileSizeMsg+' '+this.name);
 						}
-						if ($.inArray(this.name, existingFiles) >= 0) {
-							uploadErrors.push(kdf.messages.fileExistsMsg+' '+this.name);
-						}
+						
+						var matchString = this.name.toLowerCase();
+						var rslt = null;
+						$.each(existingFiles, function(index, value) {
+							if (rslt == null && value.toLowerCase() === matchString) {
+								uploadErrors.push(kdf.messages.fileExistsMsg+' '+this.name);
+								rslt = index;
+								return false;
+							}
+						});
+						
 						if (validExtensions.length > 0 && $.inArray(this.name.substring(this.name.lastIndexOf('.')), validExtensions) < 0) {
 							uploadErrors.push(kdf.messages.incorrectFileTypeMsg+' '+$('#'+fileinputid).attr('accept'));
 						}
@@ -645,6 +671,14 @@ this.KDF=(function(window, document, $, undefined) {
 					} else {
 						hideMessages();
 						data.submit();
+					}
+				},
+				fail : function(e, data) {				
+					showFieldError(this, false);
+					if(data.errorThrown == 'Unprocessable Entity') {
+						showWarning(kdf.messages.htmlInName);
+					} else {
+						showWarning(kdf.messages.fileInfected);
 					}
 				},
 				done: function (e, data) {
@@ -928,10 +962,16 @@ this.KDF=(function(window, document, $, undefined) {
 		var outfields = $(mapHolder).attr('data-outfields');
 		var enablesuggestions = Boolean($(mapHolder).attr('data-enablesuggestions') == 'true');
 		var geocodeonline = Boolean($(mapHolder).attr('data-geocodeonline') == 'true');
-		var wkid = Number($(mapHolder).attr('data-wkid'))
+		var wkid = Number($(mapHolder).attr('data-wkid'));
+		
+		var searchextent = Boolean($(mapHolder).attr('data-searchextent') == 'true');
+		var minx = Number($(mapHolder).attr('data-minx'));
+		var miny = Number($(mapHolder).attr('data-miny'));
+		var maxx = Number($(mapHolder).attr('data-maxx'));
+		var maxy = Number($(mapHolder).attr('data-maxy'));
 
-        require(["esri/map", "esri/geometry/Point", "esri/symbols/SimpleMarkerSymbol", "esri/symbols/PictureMarkerSymbol", "esri/graphic",  "esri/layers/GraphicsLayer", "esri/dijit/Search", "esri/tasks/locator", "esri/config", "dojo/domReady!" ],
-        function(Map, Point, SimpleMarkerSymbol, PictureMarkerSymbol, Graphic, GraphicsLayer, Search, Locator, esriConfig) {
+        require(["esri/map", "esri/geometry/Point", "esri/symbols/SimpleMarkerSymbol", "esri/symbols/PictureMarkerSymbol", "esri/graphic",  "esri/layers/GraphicsLayer", "esri/dijit/Search", "esri/geometry/Extent", "esri/tasks/locator", "esri/config", "dojo/domReady!" ],
+        function(Map, Point, SimpleMarkerSymbol, PictureMarkerSymbol, Graphic, GraphicsLayer, Search, Extent, Locator, esriConfig) {
 
 			if (geometryserviceurl != '') {
 				esriConfig.defaults.geometryService = geometryserviceurl;
@@ -980,7 +1020,13 @@ this.KDF=(function(window, document, $, undefined) {
 				}
 				if (centeronlocation && navigator.geolocation) {
 					navigator.geolocation.getCurrentPosition(function(position) {
-						map.centerAt(new Point(position.coords.longitude, position.coords.latitude));
+						if(projection) {
+							var p = new Point(position.coords.longitude, position.coords.latitude, new esri.SpatialReference({ wkid: wkid }));
+							proj4(proj4('EPSG:4326'),projection,p);
+							map.centerAt(p);
+						} else {
+							map.centerAt(new Point(position.coords.longitude, position.coords.latitude, new esri.SpatialReference({ wkid: wkid })));
+						}
 					});
 				}
 			}
@@ -1031,7 +1077,22 @@ this.KDF=(function(window, document, $, undefined) {
 						sources: [{locator: new Locator(locatorurl), singleLineFieldName: singlelinefieldname, outFields: [outfields], placeholder: kdf.messages.gisquery}]
 					}, id+'_arcgis_search');
 				}
-				searchwidget.startup();
+				
+				if (searchextent) {
+					//Create extent to limit search - needs added to UI for configuration
+					var geoExtent = new Extent({
+						"spatialReference": {
+							"wkid": wkid
+						},
+						"xmin": minx,
+						"xmax": maxx,
+						"ymin": miny,
+						"ymax": maxy
+					});
+	    			searchwidget.sources[0].searchExtent = geoExtent;
+				}
+					
+      			searchwidget.startup();
 				kdf.arcgissearchwidgets.push(searchwidget);
 				$('#dform_widget_'+name+'_arcgis_search_input').parent().append('<input type="submit" style="display: none;" value="'+kdf.messages.gisquery+'"/>');
 			}
@@ -1365,6 +1426,22 @@ this.KDF=(function(window, document, $, undefined) {
 		//OFORMS-85: wait for the form to have fully loaded and then set any params as required
 		//OFORMS-105: moved prior to the _KDF_previewReady and _KDF_ready events
 		loadForm(kdf.params);
+		//OFORMS-113: move the loading of files to after onetomany widgets have been initialised
+		if (kdf.form.files && kdf.form.files.length > 0) {
+			$(kdf.form.files).each(function() {
+				var fileitem = $('<span>');
+				fileitem.attr('data-filename', this.filename);
+				fileitem.attr('data-token', this.token);
+				fileitem.attr('data-ref', kdf.form.ref);
+				fileitem.append(escapeHtml(this.filename) + '<span class="file_delete">4</span>');
+				fileitem.appendTo('#' + this.field + '_files');
+				
+				var link = '<a target="_blank" href="'+kdf.restapi+'getfile?ref='+kdf.form.ref+'&filename='+encodeURIComponent(this.filename)+'">'+escapeHtml(this.filename)+'</a>';
+				//TODO: this.links[0].href should be used but Spring Hateous double encoding
+				$('#dform_files').append(link);
+			});
+
+		}
 		
 		$( '#dform_'+kdf.name ).trigger('_KDF_previewReady', [ kdf ] );
 		$( '#dform_'+kdf.name ).trigger('_KDF_ready', [ kdf ] );
@@ -1386,57 +1463,82 @@ this.KDF=(function(window, document, $, undefined) {
 
 	function enableRecaptcha() {
 		var lastnavpageid=kdf.pages-1;
+		var recaptchapage = kdf.pages-1;
+		
+		while (true && lastnavpageid > 0) {
+			if ($('.dform_page[data-pos="'+lastnavpageid+'"]').attr('data-active') == 'true') {
+				recaptchapage = lastnavpageid;
+				break;
+			} else {
+				//do initNavigation to reset button navigation should the active pages have changed
+				initNavigation();
+			}
+			lastnavpageid--;
+		}
+		
+		$('.dform_page[data-pos="'+recaptchapage+'"]').find('button[data-type="next"]').unbind('click').click(function() {
+			openRecaptcha('next');
+		});
+		
+		$('button[data-type="move"]').each(function () {
+			var gotoid = Number($('#dform_page_'+$(this).attr('data-moveto')).attr('data-pos'));
+			if (gotoid >= kdf.pages) {
+				$(this).unbind('click').click(function() {
+					openRecaptcha('move');
+				});
+			}
+		});
+	}
+
+	function openRecaptcha(buttontype) {
+		var lastnavpageid=kdf.pages-1;
 		while (true && lastnavpageid > 0) {
 			if ($('.dform_page[data-pos="'+lastnavpageid+'"]').attr('data-active') == 'true') {
 				break;
 			}
 			lastnavpageid--;
 		}
-		$('.dform_page[data-pos="'+lastnavpageid+'"]').find('button[data-type="next"]').unbind('click').click(function() {
-			openRecaptcha();
-		});
-		$('button[data-type="move"]').each(function () {
-			var gotoid = Number($('#dform_page_'+$(this).attr('data-moveto')).attr('data-pos'));
-			if (gotoid >= kdf.pages) {
-				$(this).unbind('click').click(function() {
-					openRecaptcha();
-				});
-			}
-		});
-	}
-
-	function openRecaptcha() {
-		if (check('.dform_page[data-pos="'+kdf.form.currentpage+'"]') != 0) {
-			$('#dform_navigation li[data-pos="'+kdf.form.currentpage+'"]').removeClass('dform_pageValid dform_pageInvalidCustom').addClass('dform_pageInvalid');
-			return;
-		} else {
-			$('#dform_navigation li[data-pos="'+kdf.form.currentpage+'"]').removeClass('dform_pageInvalid dform_pageInvalidCustom').addClass('dform_pageValid');
-			if (checkProgress() != 0) {
-				showError(kdf.messages.checkFormMsg);				
-				showNav();
+		
+		//Ensure that if a 'next' button has been clicked that it is the last page in the navigation tree
+		//If a 'move' button has been clicked then we proceed to recaptcha
+		if(lastnavpageid == kdf.form.currentpage || buttontype=='move') {
+			if (check('.dform_page[data-pos="'+kdf.form.currentpage+'"]') != 0) {
+				$('#dform_navigation li[data-pos="'+kdf.form.currentpage+'"]').removeClass('dform_pageValid dform_pageInvalidCustom').addClass('dform_pageInvalid');
 				return;
+			} else {
+				$('#dform_navigation li[data-pos="'+kdf.form.currentpage+'"]').removeClass('dform_pageInvalid dform_pageInvalidCustom').addClass('dform_pageValid');
+				if (checkProgress() != 0) {
+					showError(kdf.messages.checkFormMsg);				
+					showNav();
+					return;
+				}
 			}
+
+			$.fn.center = function () {
+				this.css("position","fixed");
+				this.css("top", Math.max(0, ($(window).height() - $(this).outerHeight()) / 2) + "px");
+				this.css("left", Math.max(0, ($(window).width() - $(this).outerWidth()) / 2) + "px");
+				return this;
+			};
+
+			$('#dform_lock').show();
+			$('#dform_recaptcha_render').remove();
+			$('#dform_recaptcha').append('<div id="dform_recaptcha_render"></div>');
+			kdf.captchaWidgetId = grecaptcha.render( 'dform_recaptcha_render', {'sitekey' : kdf.recaptchakey, 'callback' : function() {
+				gotoPage(kdf.pages,false,true,true);
+				$('#dform_lock, #dform_recaptcha').hide();
+			}});
+
+			$('#dform_recaptcha').center().show();
+			$('.recaptcha_close').unbind('click').click(function() {
+				$('#dform_lock, #dform_recaptcha').hide();
+			});
+		} else {
+			//'next' button clicked that is no longer the last button in the navigation tree, therefore
+			//reset enableRecaptcha and browse to the next page in the tree
+			enableRecaptcha();
+			gotoNextPage();
 		}
-
-		$.fn.center = function () {
-			this.css("position","fixed");
-			this.css("top", Math.max(0, ($(window).height() - $(this).outerHeight()) / 2) + "px");
-			this.css("left", Math.max(0, ($(window).width() - $(this).outerWidth()) / 2) + "px");
-			return this;
-		};
-
-		$('#dform_lock').show();
-		$('#dform_recaptcha_render').remove();
-		$('#dform_recaptcha').append('<div id="dform_recaptcha_render"></div>');
-		kdf.captchaWidgetId = grecaptcha.render( 'dform_recaptcha_render', {'sitekey' : kdf.recaptchakey, 'callback' : function() {
-			gotoPage(kdf.pages,false,true,true);
-			$('#dform_lock, #dform_recaptcha').hide();
-		}});
-
-		$('#dform_recaptcha').center().show();
-		$('.recaptcha_close').unbind('click').click(function() {
-			$('#dform_lock, #dform_recaptcha').hide();
-		});
 	}
 
 	function home() {
@@ -1690,9 +1792,10 @@ this.KDF=(function(window, document, $, undefined) {
 				// If no native date function create a new field of type text and add juery datepicker
 				var newDateField = $(this).clone(true);
 				$(newDateField).attr('id', '_JQDP_'+$(this).attr('id'));
-				$(newDateField).attr('name', '_JQDP_'+$(this).attr('name'));
+				$(newDateField).attr('name', '_JQDP_'+$(this).attr('name'));				
 				$(newDateField).val(convertDate($(this).val(),kdf.dateformat));
 				$(newDateField).addClass('dform_nopersist');
+				$(newDateField).attr('placeholder', kdf.dateformat);
 				$(newDateField).datepicker({
 					dateFormat: kdf.jq_dateformat,
 					changeMonth: true,
@@ -1716,6 +1819,8 @@ this.KDF=(function(window, document, $, undefined) {
 					onSelect: function() {
 						kdf.realtimeValidationOn=true;
 						clearFieldError(this, false);
+						clearFieldError(this, true);
+						triggerFieldSet(this);
 					}
 				});
 				$(newDateField).appendTo($(this).parent());
@@ -1802,22 +1907,7 @@ this.KDF=(function(window, document, $, undefined) {
 		loadForm(kdf.profileData);
 		//loadForm(kdf.params); //OFORMS-85: wait for the form to have fully loaded and then set any params as required
 		loadForm(kdf.form.data);
-		if (kdf.form.files && kdf.form.files.length > 0) {
-
-			$(kdf.form.files).each(function() {
-				var fileitem = $('<span>');
-				fileitem.attr('data-filename', this.filename);
-				fileitem.attr('data-token', this.token);
-				fileitem.attr('data-ref', kdf.form.ref);
-				fileitem.append(escapeHtml(this.filename) + '<span class="file_delete">4</span>');
-				fileitem.appendTo('#dform_widget_' + this.field + '_files');
-
-				var link = '<a target="_blank" href="'+kdf.restapi+'getfile?ref='+kdf.form.ref+'&filename='+this.filename+'">'+escapeHtml(this.filename)+'</a>';
-				//TODO: this.links[0].href should be used but Spring Hateous double encoding
-				$('#dform_files').append(link);
-			});
-
-		}
+		//OFORMS-113 - moved loading of files from here to the ready() method
 		KDF.setDefaultDates();
 		ready();
 	}
@@ -1921,7 +2011,7 @@ this.KDF=(function(window, document, $, undefined) {
 						case 'checkbox':
 							if (value instanceof Array) {
 								if ($.inArray(this.value, value) >= 0) {
-									if ($(element).prop('value') == value) {
+									if ($(element).prop('value') == this.value) {
 										$(this).prop('checked', 'checked');
 									}
 									triggerFieldSet(element);
@@ -2173,7 +2263,13 @@ this.KDF=(function(window, document, $, undefined) {
 
 		var clone=$('#'+$(holder).data('child')).clone();
 
-		var pos = $('#'+$(holder).attr('id')+' .'+holderid).length;
+		//EMPRO-1261: use the data-pos attribute of the child element to get the pos. This ensures that the pos numbers are unique and increment off the highest number
+		var child = $(holder).children('div[data-type=child]').last();
+		if(child.length>0) {
+			pos = Number($(child).attr('data-pos'))+1;
+		} else {
+			pos = 0;
+		}
 		$('#'+$(holder).attr('id')+' .'+holderid).each(function() {
 			if (Number($(this).data('pos')) > pos) {
 				pos = Number($(this).data('pos'))+1;
@@ -2187,7 +2283,8 @@ this.KDF=(function(window, document, $, undefined) {
 			}
 			if ($(this).attr('type') == 'file') {
 				$(clone).find('#'+id+'_progressbar').attr('id',parentid+holdername+pos+id+'_progressbar');
-				$(clone).find('#'+id+'_files').attr('id',parentid+holdername+pos+id+'_files');
+				//OFORMS-113: do not alter the id of the files widget - unneccessary
+				//$(clone).find('#'+id+'_files').attr('id',parentid+holdername+pos+id+'_files');
 			}
 		});
 
@@ -2658,11 +2755,11 @@ this.KDF=(function(window, document, $, undefined) {
 	}
 
 	function processLogicRadio(element) {
+		hide(element,$(element).attr('data-off'));
 		hidePages(element,$(element).attr('data-page-off'));
 		showPages(element,$(element).attr('data-page-on'));
 		hideSections(element,$(element).attr('data-section-off'));
 		showSections(element,$(element).attr('data-section-on'));
-		hide(element,$(element).attr('data-off'));
 		show(element,$(element).attr('data-on'));
 		setNotRequired(element,$(element).attr('data-required-off'));
 		setRequired(element,$(element).attr('data-required-on'));
@@ -2670,11 +2767,11 @@ this.KDF=(function(window, document, $, undefined) {
 	}
 
 	function processLogicSelect(element) {
+		hide(element,$('option:selected', element).attr('data-off'));
 		hidePages(element,$('option:selected', element).attr('data-page-off'));
 		showPages(element,$('option:selected', element).attr('data-page-on'));
 		hideSections(element,$('option:selected', element).attr('data-section-off'));
 		showSections(element,$('option:selected', element).attr('data-section-on'));
-		hide(element,$('option:selected', element).attr('data-off'));
 		show(element,$('option:selected', element).attr('data-on'));
 		setNotRequired(element,$('option:selected', element).attr('data-required-off'));
 		setRequired(element,$('option:selected', element).attr('data-required-on'));
@@ -2682,11 +2779,11 @@ this.KDF=(function(window, document, $, undefined) {
 	}
 
 	function processLogicButton(element) {
+		hide(element,$(element).attr('data-off'));
 		hidePages(element,$(element).attr('data-page-off'));
 		showPages(element,$(element).attr('data-page-on'));
 		hideSections(element,$(element).attr('data-section-off'));
 		showSections(element,$(element).attr('data-section-on'));
-		hide(element,$(element).attr('data-off'));
 		show(element,$(element).attr('data-on'));
 		setNotRequired(element,$(element).attr('data-required-off'));
 		setRequired(element,$(element).attr('data-required-on'));
@@ -2705,9 +2802,9 @@ this.KDF=(function(window, document, $, undefined) {
 			}
 			switch (type) {
 				case 'radio':
+					hide(element,$('input[name="'+$(this).attr('name')+'"]:checked').attr('data-on'));
 					hidePages(element,$('input[name="'+$(this).attr('name')+'"]:checked').attr('data-page-on'));
 					hideSections(element,$('input[name="'+$(this).attr('name')+'"]:checked').attr('data-section-on'));
-					hide(element,$('input[name="'+$(this).attr('name')+'"]:checked').attr('data-on'));
 					setNotRequired(element,$('input[name="'+$(this).attr('name')+'"]:checked').attr('data-required-on'));
 					$('input[name="'+$(this).attr('name')+'"]').attr('checked',false);
 					break;
@@ -2716,9 +2813,9 @@ this.KDF=(function(window, document, $, undefined) {
 					processLogicCheckbox(this)
 					break;
 				case 'select':
+					hide(element,$('option:selected', element).attr('data-on'));
 					hidePages(element,$('option:selected', element).attr('data-page-on'));
 					hideSections(element,$('option:selected', element).attr('data-section-on'));
-					hide(element,$('option:selected', element).attr('data-on'));
 					setNotRequired(element,$('option:selected', element).attr('data-required-on'));
 					$(this).val('');
 					break;
